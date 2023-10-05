@@ -66,3 +66,9 @@ pub struct MetaContract {
 pub struct SerdeMetadata {
   pub loose: i64,
 }
+
+
+#[derive(Debug, Default, Deserialize)]
+pub struct NousAiMetadata {
+  pub id: String,
+}

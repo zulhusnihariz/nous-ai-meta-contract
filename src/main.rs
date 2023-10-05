@@ -15,7 +15,7 @@ use types::MetaContract;
 use types::Metadata;
 use types::SerdeMetadata;
 use types::Transaction;
-use types::{FinalMetadata, MetaContractResult};
+use types::{ FinalMetadata, MetaContractResult, NousAiMetadata };
 use ethabi::{decode, ParamType};
 
 module_manifest!();
@@ -34,95 +34,35 @@ pub fn on_execute(
     transaction: Transaction,
 ) -> MetaContractResult {
     let mut finals: Vec<FinalMetadata> = vec![];
-    // let new_metadatas = metadatas.clone();
-    let mut hash_map = HashMap::new();
+    let serde_metadata: Result<NousAiMetadata, serde_json::Error> = serde_json::from_str(&transaction.data.clone());
 
-    // Only 10 beat
-    for data in metadatas {
-      if data.alias == "" {
-        hash_map.insert(data.public_key, data.cid);
-      }
+    match serde_metadata{
+        Ok(metadata) => {
+            if metadata.id.is_empty() {
+                return MetaContractResult {
+                    result:false,
+                    metadatas: Vec::new(),
+                    error_string: "id cannot be empty".to_string()
+                }
+            }
+        }
+        Err(_) => {
+            return MetaContractResult {
+                result: false,
+                metadatas: Vec::new(),
+                error_string: "Data does not follow the required JSON schema".to_string()
+            }
+        }
+
     }
 
-    if transaction.alias == "" {
-      hash_map.insert(transaction.public_key.clone(), transaction.data.clone());
-    }
-
-    let no_beats = hash_map.len() as i32;
-
-    if no_beats > 10 {
-        return MetaContractResult {
-            result: false,
-            metadatas: finals,
-            error_string: "Can not be more than 10 beats".to_string(),
-        };
-    }
-    
-    finals.push(FinalMetadata {
-        public_key: contract.public_key.clone(),
-        alias: "name".to_string(),
-        content: format!("Collabeat #{}", transaction.token_id),
-        loose: 1,
-        version: "".to_string(),
+    finals.push(FinalMetadata { 
+        public_key: transaction.public_key,
+        alias: transaction.alias,
+        content: transaction.data,
+        loose: 0,
+        version: transaction.version
     });
-
-    finals.push(FinalMetadata {
-        public_key: contract.public_key.clone(),
-        alias: "description".to_string(),
-        content: "Co-Create, Collaborate and Own The Beat".to_string(),
-        loose: 1,
-        version: "".to_string(),
-    });
-
-    finals.push(FinalMetadata {
-        public_key: contract.public_key.clone(),
-        alias: "image".to_string(),
-        content: "ipfs://".to_string(),
-        loose: 1,
-        version: "".to_string(),
-    });
-
-    finals.push(FinalMetadata {
-        public_key: contract.public_key.clone(),
-        alias: "external_url".to_string(),
-        content: format!("{}{}", DEFAULT_COLLABEAT_URL, transaction.data_key),
-        loose: 1,
-        version: "".to_string(),
-    });
-
-    finals.push(FinalMetadata {
-        public_key: contract.public_key.clone(),
-        alias: "animation_url".to_string(),
-        content: format!("{}{}", DEFAULT_COLLABEAT_URL, transaction.data_key),
-        loose: 1,
-        version: "".to_string(),
-    });
-
-    let attr = vec![{
-      OpenSeaAttributes { display_type: "number".to_string(), trait_type: "No of Beats".to_string(), value: no_beats}
-    }];
-
-    finals.push(FinalMetadata {
-        public_key: contract.public_key.clone(),
-        alias: "attributes".to_string(),
-        content: serde_json::to_string(&attr).unwrap(),
-        loose: 1,
-        version: "".to_string(),
-    });
-    
-    // let serde_metadata: Result<SerdeMetadata, serde_json::Error> = serde_json::from_str(&transaction.mcdata.clone());
-    // let mut loose;
-
-    // match serde_metadata {
-    //   Ok(sm) => loose = sm.loose,
-    //   _ => loose = 1,
-    // }
-    // finals.push(FinalMetadata {
-    //     public_key: transaction.public_key,
-    //     alias: transaction.alias,
-    //     content: transaction.data,
-    //     loose,
-    // });
 
     MetaContractResult {
         result: true,
@@ -133,120 +73,14 @@ pub fn on_execute(
 
 #[marine]
 pub fn on_clone() -> bool {
-    return true;
+    return false;
 }
 
 #[marine]
 pub fn on_mint(contract: MetaContract, data_key: String, token_id: String, data: String) -> MetaContractResult {
-    let mut name = format!("Collabeat #{}", token_id);
     let mut error: Option<String> = None;
     let mut finals: Vec<FinalMetadata> = vec![];
-    let mut no_beats = 0;
-    let mut hash_map: HashMap<String, String> = HashMap::new();
-
-    finals.push(FinalMetadata {
-        public_key: contract.public_key.clone(),
-        alias: "description".to_string(),
-        content: "Co-Create, Collaborate and Own The Beat".to_string(),
-        loose: 1,
-        version: "".to_string(),
-    });
-
-    finals.push(FinalMetadata {
-        public_key: contract.public_key.clone(),
-        alias: "image".to_string(),
-        content: "ipfs://".to_string(),
-        loose: 1,
-        version: "".to_string(),
-    });
-
     // extract out data
-    if data.len() > 0 {
-
-        let data_bytes = &hex::decode(&data);
-
-        match data_bytes {
-          Ok(decoded) => {
-            let param_types = vec![
-              ParamType::String,
-              ParamType::String,
-              ParamType::String,
-            ];
-
-            let results = decode(&param_types, decoded);
-
-            match results {
-              Ok(result) => {
-                if result.len() == 3 {
-                  let new_name = result[0].clone().to_string();
-
-                  if new_name.len() > 0 {
-                    name = format!("{}", new_name.clone());
-                  }
-                  let ipfs_multiaddr = result[1].clone().to_string();
-                  let cid = result[2].clone().to_string();
-                  
-                  let datasets = get(cid, ipfs_multiaddr, 0);
-                  let result: Result<Vec<DataStructFork>, serde_json::Error> =
-                      serde_json::from_str(&datasets);
-    
-                  match result {
-                      Ok(datas) => {
-                          no_beats = datas.clone().len() as i32;
-                      }
-                      Err(e) => error = Some(format!("Invalid data structure: {}", e.to_string())),
-                  }
-                }
-              },
-              Err(e) => error = Some(format!("Invalid data structure: {}", e.to_string())),
-            }
-          },
-          Err(e) => error = Some(format!("Invalid data structure: {}", e.to_string())),
-        }
-    }
-
-    if !error.is_none() {
-      return MetaContractResult {
-        result: false,
-        metadatas: Vec::new(),
-        error_string: error.unwrap().to_string(),
-      };
-    }
-    // adds attributes
-    let attr = vec![{
-      OpenSeaAttributes { display_type: "number".to_string(), trait_type: "No of Beats".to_string(), value: no_beats}
-    }];
-    finals.push(FinalMetadata {
-        public_key: contract.public_key.clone(),
-        alias: "attributes".to_string(),
-        content: serde_json::to_string(&attr).unwrap(),
-        loose: 1,
-        version: "".to_string(), 
-    });
-
-    finals.push(FinalMetadata {
-        public_key: contract.public_key.clone(),
-        alias: "name".to_string(),
-        content: name,
-        loose: 1,
-        version: "".to_string(),
-    });
-
-    finals.push(FinalMetadata {
-        public_key: contract.public_key.clone(),
-        alias: "animation_url".to_string(),
-        content: format!("{}{}", DEFAULT_COLLABEAT_URL, data_key),
-        loose: 1,
-        version: "".to_string(),
-    });
-
-    finals.push(FinalMetadata {
-        public_key: contract.public_key.clone(),
-        alias: "external_url".to_string(),
-        content: format!("{}{}", DEFAULT_COLLABEAT_URL, data_key),
-        loose: 1,
-        version: "".to_string(),
-    });
 
     MetaContractResult {
         result: true,
@@ -254,6 +88,7 @@ pub fn on_mint(contract: MetaContract, data_key: String, token_id: String, data:
         error_string: "".to_string(),
     }
 }
+
 
 /**
  * Get data from ipfs
